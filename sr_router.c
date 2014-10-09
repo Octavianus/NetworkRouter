@@ -20,6 +20,8 @@
 #include "sr_router.h"
 #include "sr_protocol.h"
 
+#define UNKOWN_TYPE -1
+
 /*--------------------------------------------------------------------- 
  * Method: sr_init(void)
  * Scope:  Global
@@ -67,10 +69,35 @@ void sr_handlepacket(struct sr_instance* sr,
 
     printf("*** -> Received packet of length %d \n",len);
 
+    short type = get_EtherType(packet);
+    if(type == UNKOWN_TYPE)
+    {
+    	printf("Can't Recognize the ethernet type \n");
+    	return;
+    }
+
+    if(type == ETHERTYPE_ARP){
+    	arp_handle(sr, packet, len, interface);
+    }
+
+
 }/* end sr_ForwardPacket */
 
 
 /*--------------------------------------------------------------------- 
- * Method:
- *
+ * Method: get_EtherType(uint8_t * packet)
+ * Get the ethernet type from packet
  *---------------------------------------------------------------------*/
+
+short get_EtherType(uint8_t * packet){
+	// Type cast
+	uint16_t type = (struct sr_ethernet_hdr *)packet->ether_type;
+
+	// compare the type
+	if(ntohs(type) == ETHERTYPE_ARP)
+		return ETHERTYPE_ARP;
+	else if(ntohs(type) == ETHERTYPE_IP)
+		return ETHERTYPE_IP;
+	else
+		return UNKOWN_TYPE;
+}
