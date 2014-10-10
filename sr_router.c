@@ -69,6 +69,7 @@ void sr_handlepacket(struct sr_instance* sr,
 
     printf("*** -> Received packet of length %d \n",len);
 
+    // Recognize the ethernet type
     short type = get_EtherType(packet);
     if(type == UNKOWN_TYPE)
     {
@@ -76,8 +77,79 @@ void sr_handlepacket(struct sr_instance* sr,
     	return;
     }
 
+    // Request and respond function for ARP.
     if(type == ETHERTYPE_ARP){
-    	arp_handle(sr, packet, len, interface);
+    	// Get the router interfaces from the packet and initiate the apr header.
+    	struct sr_if *sr_in = sr_get_interface(sr, interface);
+    	struct sr_arphdr *arphdr = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr));
+
+    	if(sr_in == 0) {
+    		printf("Bad interface \n");
+    		return;
+    	}
+
+    	// Use ntohs function converts the unsigned short integer netshort from network byte order to host byte order.
+    	if(ntohs(arphdr->ar_op) == ARP_REQUEST) {
+    		// If it's the destination
+    		if(arphdr->ar_tip == sr_in->ip){
+
+    			unsigned int packet_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr);
+
+    			// Copy src, des and type to the send packet.
+    			struct sr_ethernet_hdr *send_packet = malloc(sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr));
+    			send_packet->ether_type = htons(ETHERTYPE_ARP);
+    			memcpy(send_packet->ether_shost, src, ETHER_ADDR_LEN);
+    			memcpy(send_packet->ether_dhost, arphdr->ar_sha, ETHER_ADDR_LEN);
+
+    			// Define the arp header from the packet we receive
+    			arphdr->ar_op = htons(ARP_REPLY);
+    			arphdr->ar_hrd = htons(ARPHDR_ETHER);
+    			arphdr->ar_hln = ETHER_ADDR_LEN;
+    			arphdr->ar_pln = IP_ADDR_LEN;
+    			arphdr->ar_pro = htons(ETHERTYPE_IP);
+    			arphdr->ar_tip = arphdr->ar_sip;
+    			arphdr->ar_sip = sr_in->ip;
+
+    			memcpy(arphdr->ar_sha, sr_in->addr, ETHER_ADDR_LEN);
+    			memcpy(arphdr->ar_tha, arphdr->ar_sha, ETHER_ADDR_LEN);
+
+    			// Send the packet to destinated interface.
+    			// Have to cast the packet to uint8_t * to align with the sr_send_packet.
+    			if(sr_send_packet(sr, (uint8_t *)send_packet, packet_len, sr_in->name)) {
+    				printf("The host are unavaliable to response \n");
+    			}
+    			// Success to send the packet back.
+    			// TODO What to respond ?
+    			else {
+    				// printf(" \n");
+    			}
+
+    			free(send_packet);
+    		}
+    		// If this is not the destination, just inform the user.
+    		else
+    			printf("Packet Received\n");
+    	}
+
+    	else if(ntohs(arphdr->ar_op) == ARP_REPLY) {
+    		// Init and add a new arp entry.
+    		struct sr_arp_record *record;
+    		record = cache_add_record(sr, packet);
+
+    		if(record == NULL){
+    			printf("No matched arp packet in the cache queue");
+    			return;
+    		}else{
+    			//
+    			cache_send_outstanding(sr, record);
+    		}
+    	}
+
+    	/*
+    	else {
+    		printf("Unkown arp type"\n");
+    	}
+    	*/
     }
 
 
@@ -101,3 +173,5 @@ short get_EtherType(uint8_t * packet){
 	else
 		return UNKOWN_TYPE;
 }
+
+
