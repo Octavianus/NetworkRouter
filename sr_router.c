@@ -133,6 +133,7 @@ void sr_handlepacket(struct sr_instance* sr,
 
     	else if(ntohs(arphdr->ar_op) == ARP_REPLY) {
     		// Init and add a new arp entry.
+    		// TODO define this structure
     		struct sr_arp_record *record;
     		record = cache_add_record(sr, packet);
 
