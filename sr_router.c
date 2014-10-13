@@ -21,6 +21,8 @@
 #include "sr_protocol.h"
 
 #define UNKOWN_TYPE -1
+#define ERROR 0
+#define OK 1
 
 /*--------------------------------------------------------------------- 
  * Method: sr_init(void)
@@ -83,6 +85,7 @@ void sr_handlepacket(struct sr_instance* sr,
     	struct sr_if *sr_in = sr_get_interface(sr, interface);
     	struct sr_arphdr *arphdr = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr));
 
+
     	if(sr_in == 0) {
     		printf("Bad interface \n");
     		return;
@@ -133,27 +136,76 @@ void sr_handlepacket(struct sr_instance* sr,
 
     	else if(ntohs(arphdr->ar_op) == ARP_REPLY) {
     		// Init and add a new arp entry.
-    		// TODO define this structure
+    		// TODO no need to define this structure (record), but need to check the sanity of sr and packet.
     		struct sr_arp_record *record;
     		record = cache_add_record(sr, packet);
 
     		if(record == NULL){
-    			printf("No matched arp packet in the cache queue");
+    			printf("No matched arp packet in the list");
     			return;
     		}else{
     			//
     			cache_send_outstanding(sr, record);
+
+    			struct sr_arp_request * req = NULL;
+    			req = sr->cache->requests;
+
+    			if(req == NULL) {
+    				printf("Does not have any request yet.\n");
+    				return;
+
+    			// Find the ip request in the list
+    			}else{
+					while(req != NULL) {
+						// TODO struct sr_arphdr *arp_hdr = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr))
+							if(req->ip.s_addr == arphdr->ar_sip)
+								// find it
+								break;
+							else
+								req = req->next;
+						}
+
+					if(req == NULL){
+						printf("Does not have any request yet.\n");
+					    return;
+					}
+    			}
+
+
+    			struct sr_arp_message *msg = NULL;
+    			msg = req->messages;
+
+    			if(msg == NULL) {
+    				printf("Does not have any msg yet \n", /*inet_ntoa(arphdr->ar_sip)*/);
+    			}
+
+    			struct sr_arp_message *prev = msg;
+    			while(msg != NULL) {
+    				// TODO memcpy(record->address, arp_hdr->ar_sha, ETHER_ADDR_LEN);
+    				int status = 0;
+    				struct sr_ethernet_hdr *eth_hdr = NULL;
+    				eth_hdr = (struct sr_ethernet_hdr *)msg->packet;
+    				memcpy(eth_hdr->ether_dhost, arp_hdr->ar_sha, ETHER_ADDR_LEN);
+
+    				status = sr_send_packet(sr, msg->packet, msg->length, msg->interface);
+    				if(status = ERROR) {
+    					printf("Error when send IP packet \n");
+   					}else{
+   						// iterate to next msg
+						free(msg->packet);
+						msg = msg->next;
+						free(prev);
+						prev = msg;
+   					}
+   				}
     		}
     	}
-
     	/*
     	else {
     		printf("Unkown arp type"\n");
     	}
     	*/
     }
-
-
 }/* end sr_ForwardPacket */
 
 
@@ -161,7 +213,6 @@ void sr_handlepacket(struct sr_instance* sr,
  * Method: get_EtherType(uint8_t * packet)
  * Get the ethernet type from packet
  *---------------------------------------------------------------------*/
-
 short get_EtherType(uint8_t * packet){
 	// Type cast
 	uint16_t type = (struct sr_ethernet_hdr *)packet->ether_type;
