@@ -135,30 +135,42 @@ void sr_handlepacket(struct sr_instance* sr,
     	}
 
     	else if(ntohs(arphdr->ar_op) == ARP_REPLY) {
-    		// Init and add a new arp entry.
-    		// TODO no need to define this structure (record), but need to check the sanity of sr and packet.
-    		struct sr_arp_record *record;
-    		record = cache_add_record(sr, packet);
+    			// Init and add a new arp entry.
+    			struct arp_cache * cache_entry = NULL;
+    			struct arp_req_cache * req = NULL;
 
-    		if(record == NULL){
-    			printf("No matched arp packet in the list");
-    			return;
-    		}else{
-    			//
-    			cache_send_outstanding(sr, record);
+    			// If there is no cach entry in the table, init it,
+    			// otherwise, add the entry to the tail of the list.
+    			if(sr->arp_cache == NULL) {
+    				sr->arp_cache = malloc(sizeof(struct arp_cache));
+    				cache_entry = sr->arp_cache;
+    			} else {
+    				cache_entry = sr->cache_entry;
+    				while(cache_entry->next != NULL)
+    					cache_entry = cache_entry->next;
+    				cache_entry->next = malloc(sizeof(struct arp_cache));
+    				cache_entry = cache_entry->next;
+    			}
 
-    			struct sr_arp_request * req = NULL;
-    			req = sr->cache->requests;
+    			// Copy the message from the apr header to the cache entry.
+    			memcpy(cache_entry->address, arphdr->ar_sha, ETHER_ADDR_LEN);
+    			cache_entry->next = NULL;
+    			cache_entry->ip.s_addr = arp_hdr->ar_sip;
+    			cache_entry->time = time(NULL);
 
+    			// //
+    			//cache_send_outstanding(sr, record);
+
+    			req = sr->arp_req;
     			if(req == NULL) {
     				printf("Does not have any request yet.\n");
     				return;
-
     			// Find the ip request in the list
     			}else{
 					while(req != NULL) {
 						// TODO struct sr_arphdr *arp_hdr = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr))
-							if(req->ip.s_addr == arphdr->ar_sip)
+							// cache_entry could be arphdr->ar_sip
+							if(req->ip.s_addr == cache_entry->ip.s_addr)
 								// find it
 								break;
 							else
@@ -171,21 +183,20 @@ void sr_handlepacket(struct sr_instance* sr,
 					}
     			}
 
-
-    			struct sr_arp_message *msg = NULL;
-    			msg = req->messages;
+    			struct req_msg_cache *msg = NULL;
+    			msg = req->msg;
 
     			if(msg == NULL) {
     				printf("Does not have any msg yet \n", /*inet_ntoa(arphdr->ar_sip)*/);
     			}
 
-    			struct sr_arp_message *prev = msg;
-    			while(msg != NULL) {
+    			struct arp_msg_cache *prev = msg;
+    			while(req != NULL) {
     				// TODO memcpy(record->address, arp_hdr->ar_sha, ETHER_ADDR_LEN);
     				int status = 0;
     				struct sr_ethernet_hdr *eth_hdr = NULL;
-    				eth_hdr = (struct sr_ethernet_hdr *)msg->packet;
-    				memcpy(eth_hdr->ether_dhost, arp_hdr->ar_sha, ETHER_ADDR_LEN);
+    				eth_hdr = (struct sr_ethernet_hdr *)req->packet;
+    				memcpy(eth_hdr->ether_dhost, cache_entry->address, ETHER_ADDR_LEN);
 
     				status = sr_send_packet(sr, msg->packet, msg->length, msg->interface);
     				if(status = ERROR) {
