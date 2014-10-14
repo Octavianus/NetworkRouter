@@ -43,6 +43,28 @@ struct sr_rt;
  *
  * -------------------------------------------------------------------------- */
 
+struct arp_cache{
+	uint8_t address[6];
+	struct in_addr ip;
+	time_t time;
+
+	struct arp_cache *next;
+};
+
+struct arp_msg_cache{
+
+	int repeated; // Number of times sent, MAX_REPEAT
+	char *interface;
+	uint8_t *packet;
+	//TODO
+	unsigned int length;
+	time_t timestamp; // Time sent
+	struct in_addr ip;
+	struct arp_msg_cache *next;
+/* An outstanding ARP request waiting on a response */
+
+};
+
 struct sr_instance
 {
     int  sockfd;   /* socket to server */
@@ -57,6 +79,8 @@ struct sr_instance
     struct sockaddr_in sr_addr; /* address to server */
     struct sr_if* if_list; /* list of interfaces */
     struct sr_rt* routing_table; /* routing table */
+    struct arp_cache* arp_cache;
+    struct arp_msg_cache* msg_cache;
     FILE* logfile;
 };
 
