@@ -13,7 +13,7 @@
 
 #include <stdio.h>
 #include <assert.h>
-
+#include<stdbool.h>
 
 #include "sr_if.h"
 #include "sr_rt.h"
@@ -101,14 +101,14 @@ void sr_handlepacket(struct sr_instance* sr,
     			// Copy src, des and type to the send packet.
     			struct sr_ethernet_hdr *send_packet = malloc(sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr));
     			send_packet->ether_type = htons(ETHERTYPE_ARP);
-    			memcpy(send_packet->ether_shost, src, ETHER_ADDR_LEN);
+    			memcpy(send_packet->ether_shost, sr_in->addr, ETHER_ADDR_LEN);
     			memcpy(send_packet->ether_dhost, arphdr->ar_sha, ETHER_ADDR_LEN);
 
     			// Define the arp header from the packet we receive
     			arphdr->ar_op = htons(ARP_REPLY);
     			arphdr->ar_hrd = htons(ARPHDR_ETHER);
     			arphdr->ar_hln = ETHER_ADDR_LEN;
-    			arphdr->ar_pln = IP_ADDR_LEN;
+    			arphdr->ar_pln = 4;
     			arphdr->ar_pro = htons(ETHERTYPE_IP);
     			arphdr->ar_tip = arphdr->ar_sip;
     			arphdr->ar_sip = sr_in->ip;
@@ -145,7 +145,7 @@ void sr_handlepacket(struct sr_instance* sr,
     				sr->arp_cache = malloc(sizeof(struct arp_cache));
     				cache_entry = sr->arp_cache;
     			} else {
-    				cache_entry = sr->cache_entry;
+    				cache_entry = sr->arp_cache;
     				while(cache_entry->next != NULL)
     					cache_entry = cache_entry->next;
     				cache_entry->next = malloc(sizeof(struct arp_cache));
@@ -155,8 +155,8 @@ void sr_handlepacket(struct sr_instance* sr,
     			// Copy the message from the apr header to the cache entry.
     			memcpy(cache_entry->address, arphdr->ar_sha, ETHER_ADDR_LEN);
     			cache_entry->next = NULL;
-    			cache_entry->ip.s_addr = arp_hdr->ar_sip;
-    			cache_entry->time = time(NULL);
+    			cache_entry->ip.s_addr = arphdr->ar_sip;
+    			cache_entry->timestamp = time(NULL);
 
     			// //
     			//cache_send_outstanding(sr, record);
@@ -187,7 +187,7 @@ void sr_handlepacket(struct sr_instance* sr,
     			msg = req->msg;
 
     			if(msg == NULL) {
-    				printf("Does not have any msg yet \n", /*inet_ntoa(arphdr->ar_sip)*/);
+    				printf("Does not have any msg yet \n"/*, inet_ntoa(arphdr->ar_sip)*/);
     			}
 
     			struct arp_msg_cache *prev = msg;
@@ -195,7 +195,7 @@ void sr_handlepacket(struct sr_instance* sr,
     				// TODO memcpy(record->address, arp_hdr->ar_sha, ETHER_ADDR_LEN);
     				int status = 0;
     				struct sr_ethernet_hdr *eth_hdr = NULL;
-    				eth_hdr = (struct sr_ethernet_hdr *)req->packet;
+    				eth_hdr = (struct sr_ethernet_hdr *)msg->packet;
     				memcpy(eth_hdr->ether_dhost, cache_entry->address, ETHER_ADDR_LEN);
 
     				status = sr_send_packet(sr, msg->packet, msg->length, msg->interface);
@@ -217,8 +217,7 @@ void sr_handlepacket(struct sr_instance* sr,
     		printf("Unkown arp type"\n");
     	}
     	*/
-    }
-}/* end sr_ForwardPacket */
+}
 
 
 /*--------------------------------------------------------------------- 
@@ -227,7 +226,8 @@ void sr_handlepacket(struct sr_instance* sr,
  *---------------------------------------------------------------------*/
 short get_EtherType(uint8_t *packet){
 	// Type cast
-	uint16_t type = (struct sr_ethernet_hdr *)packet->ether_type;
+	struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
+	uint16_t type = eth_hdr->ether_type;
 
 	// compare the type
 	if(ntohs(type) == ETHERTYPE_ARP)
@@ -242,7 +242,7 @@ short get_EtherType(uint8_t *packet){
  * Method: Sanity_IPCheck(uint8_t * packet)
  * Get the ethernet type from packet
  *---------------------------------------------------------------------*/
-int Sanity_IPCheck(uint8_t *packet, /*unsigned int len*/) {
+int Sanity_IPCheck(uint8_t *packet/*,unsigned int len*/) {
 	/*
 	if(len < sizeof(struct sr_ethernet_hdr) + sizeof(struct ip)) {
 		fprintf(stderr, "Too short: ");
@@ -253,7 +253,7 @@ int Sanity_IPCheck(uint8_t *packet, /*unsigned int len*/) {
 	struct ip *ip_hdr = NULL;
 	ip_hdr = (struct ip *)(sizeof(struct sr_ethernet_hdr) + packet);
 
-	if(ip_hdr->ip_v != IPV4) {
+	if(ip_hdr->ip_v != 4) {
 		printf("It's not IPV4 \n");
 		return ERROR;
 	}else
@@ -268,13 +268,15 @@ int Sanity_IPCheck(uint8_t *packet, /*unsigned int len*/) {
 		if(temp_val1 != temp_val2)
 			Invalid = true;
 
-			if(compare) {
+			if(Invalid) {
 				printf("Invalid checksum(%x/%x): ", ntohs(temp_checksum), Get_cksum((uint8_t *)ip_hdr, sizeof(struct ip)));
 				return ERROR; // Checksum should be correct
 			}
+
+		ip_hdr->ip_sum = temp_checksum;
 	}
 
-	ip_hdr->ip_sum = temp_checksum;
+
 
 	/*
 	if((len - sizeof(struct sr_ethernet_hdr)) != ntohs(ip_hdr->ip_len)) {
@@ -290,7 +292,7 @@ int Sanity_IPCheck(uint8_t *packet, /*unsigned int len*/) {
  * Method: Get_cksum(uint8_t * packet, unsigned int length)
  * Calculate the checksume of the packet.
  *---------------------------------------------------------------------*/
-uint16_t Get_cksum(uint8_t * packet, int length) {
+uint16_t Get_cksum(uint8_t * packet, int len) {
 
 	uint32_t checksum = 0;
 	uint16_t* packet_temp = (uint16_t *) packet;
@@ -300,7 +302,7 @@ uint16_t Get_cksum(uint8_t * packet, int length) {
 		checksum = checksum + packet_temp[i];
 	}
 
-	if(length > 0)
+	if(len > 0)
 		checksum += packet_temp[0] << 8;
 
 	while(checksum > 0xFFFF) {

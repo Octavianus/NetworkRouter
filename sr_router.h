@@ -119,5 +119,8 @@ void sr_add_interface(struct sr_instance* , const char* );
 void sr_set_ether_ip(struct sr_instance* , uint32_t );
 void sr_set_ether_addr(struct sr_instance* , const unsigned char* );
 void sr_print_if_list(struct sr_instance* );
+short get_EtherType(uint8_t *packet);
+int Sanity_IPCheck(uint8_t *packet/*,unsigned int len*/);
+uint16_t Get_cksum(uint8_t * packet, int len);
 
 #endif /* SR_ROUTER_H */
