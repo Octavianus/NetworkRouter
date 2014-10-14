@@ -44,7 +44,7 @@ struct sr_rt;
 struct arp_cache{
 	uint8_t address[6]; // mac
 	struct in_addr ip; // ip
-	time_t time; // time arrive
+	time_t timestamp; // time arrive
 
 	struct arp_cache *next;
 };
@@ -55,7 +55,6 @@ struct arp_cache{
  * Store the outstanding message of both request and reply locally
  * -------------------------------------------------------------------------- */
 struct arp_req_cache{
-
 	int counter; // req counter
 	time_t timestamp; // time arrive
 	struct in_addr ip; // ip
@@ -72,8 +71,9 @@ struct arp_req_cache{
 struct req_msg_cache{
 	uint8_t *packet;
 	char *interface;
-	unsigned int length;
+	time_t timestamp; // time arrive
 
+	unsigned int length;
 	struct req_msg_cache *next;
 };
 

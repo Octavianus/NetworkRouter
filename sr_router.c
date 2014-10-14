@@ -203,10 +203,11 @@ void sr_handlepacket(struct sr_instance* sr,
     					printf("Error when send IP packet \n");
    					}else{
    						// iterate to next msg
-						free(msg->packet);
-						msg = msg->next;
 						free(prev);
+						free(msg->packet);
+
 						prev = msg;
+						msg = msg->next;
    					}
    				}
     		}
@@ -224,7 +225,7 @@ void sr_handlepacket(struct sr_instance* sr,
  * Method: get_EtherType(uint8_t * packet)
  * Get the ethernet type from packet
  *---------------------------------------------------------------------*/
-short get_EtherType(uint8_t * packet){
+short get_EtherType(uint8_t *packet){
 	// Type cast
 	uint16_t type = (struct sr_ethernet_hdr *)packet->ether_type;
 
@@ -237,4 +238,79 @@ short get_EtherType(uint8_t * packet){
 		return UNKOWN_TYPE;
 }
 
+/*---------------------------------------------------------------------
+ * Method: Sanity_IPCheck(uint8_t * packet)
+ * Get the ethernet type from packet
+ *---------------------------------------------------------------------*/
+int Sanity_IPCheck(uint8_t *packet, /*unsigned int len*/) {
+	/*
+	if(len < sizeof(struct sr_ethernet_hdr) + sizeof(struct ip)) {
+		fprintf(stderr, "Too short: ");
+		return ERROR; // Too short
+	}
+	*/
 
+	struct ip *ip_hdr = NULL;
+	ip_hdr = (struct ip *)(sizeof(struct sr_ethernet_hdr) + packet);
+
+	if(ip_hdr->ip_v != IPV4) {
+		printf("It's not IPV4 \n");
+		return ERROR;
+	}else
+	{
+		uint16_t temp_checksum = ip_hdr->ip_sum;
+		ip_hdr->ip_sum = 0;
+
+		bool Invalid = false;
+		uint16_t temp_val1 = Get_cksum((uint8_t *)ip_hdr, sizeof(struct ip));
+		uint16_t temp_val2 = ntohs(temp_checksum);
+
+		if(temp_val1 != temp_val2)
+			Invalid = true;
+
+			if(compare) {
+				printf("Invalid checksum(%x/%x): ", ntohs(temp_checksum), Get_cksum((uint8_t *)ip_hdr, sizeof(struct ip)));
+				return ERROR; // Checksum should be correct
+			}
+	}
+
+	ip_hdr->ip_sum = temp_checksum;
+
+	/*
+	if((len - sizeof(struct sr_ethernet_hdr)) != ntohs(ip_hdr->ip_len)) {
+		fprintf(stderr, "Length doesn't match: ");
+		return ERROR; // Packet length does not match length field
+	}
+	*/
+
+	return OK;
+}
+
+/*---------------------------------------------------------------------
+ * Method: Get_cksum(uint8_t * packet, unsigned int length)
+ * Calculate the checksume of the packet.
+ *---------------------------------------------------------------------*/
+uint16_t Get_cksum(uint8_t * packet, int length) {
+
+	uint32_t checksum = 0;
+	uint16_t* packet_temp = (uint16_t *) packet;
+
+	int i;
+	for (i = 0; i < len / 2; i++) {
+		checksum = checksum + packet_temp[i];
+	}
+
+	if(length > 0)
+		checksum += packet_temp[0] << 8;
+
+	while(checksum > 0xFFFF) {
+		checksum = (checksum >> 16) + (checksum & 0xFFFF);
+	}
+
+	if(~checksum)
+		return ~checksum;
+	else
+		return 0xFFFF;
+
+	// return ~cksum ? ~cksum : 0xFFFF;
+}
