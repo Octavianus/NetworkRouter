@@ -289,6 +289,122 @@ int Sanity_IPCheck(uint8_t *packet/*,unsigned int len*/) {
 }
 
 /*---------------------------------------------------------------------
+ * Method: Add_Cache_Entry(uint8_t * packet)
+ * Add a cache entry to the arp table
+ *---------------------------------------------------------------------*/
+void Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int length, char * interface, struct in_addr ip) {
+
+	// Define the structure of ip, rtable and arp cache.
+	struct in_addr dest_ip;
+	struct sr_rt * rtable = NULL;
+	struct sr_arp_record *cache_entry = NULL;
+	rtable = sr->routing_table;
+	uint32_t mask_valid = 0;
+
+	// struct in_addr dest_ip = next_hop_ip(sr, ip);
+	// find the next destination from the rtable.
+	while(rtable != NULL){
+		// If the ip address with on the mask is the same in the rtable, check if the mask is a submask.
+		if((ip.s_addr & rtable->mask.s_addr) == rtable->dest.s_addr)
+		{
+			if(rtable->mask.s_addr > mask_valid) {
+				mask_valid = rtable->mask.s_addr;
+			}
+		}
+
+		rtable = rtable->next;
+	}
+
+	// if the mask is 0, then return the gw address from the rtable, else the next destination ip is the input ip
+	if(mask_valid == 0)
+		dest_ip = sr->routing_table->gw;
+	else
+		dest_ip = ip;
+
+
+
+	struct sr_arp_record * cache_lookup(struct sr_instance * sr, struct in_addr nexthop) {
+		struct sr_arp_record *record = sr->cache->records;
+
+		while(record != NULL) {
+			if(record->ip.s_addr == nexthop.s_addr) break;
+			record = record->next;
+		}
+
+		return record;
+	}
+
+	if(record == NULL) {
+		// Check to see if there is an outstanding ARP request
+		struct sr_arp_request *request = cache_lookup_outstanding(sr, dest_ip);
+		if(request == NULL) {
+			// Create a new ARP request
+			if(arp_request(sr, dest_ip, interface) == 0) {
+				request = cache_add_request(sr, dest_ip);
+				// Add the recieved message to the outstanding arp request
+				cache_add_message(request, packet, length, interface, ip);
+			} /* endif: arp request sent succesfully */
+
+			else {
+				printf("ARP request failed for address %s - dropping packet.\n", inet_ntoa(ip));
+			} /* endelse: arp request not sent succesfully */
+
+		} /* endif: no outstanding ARP request */
+
+		else {
+			cache_add_message(request, packet, length, interface, ip);
+		} /* endelse: ARP request already outstanding for this ip */
+
+	} /* endif: No record */
+	else {
+		// Send packet
+		struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
+		memcpy(eth_hdr->ether_dhost, record->address, ETHER_ADDR_LEN);
+		sr_send_packet(sr, packet, length, interface);
+	} /* endelse: ARP record already exists */
+}
+
+/*---------------------------------------------------------------------
+ * Method: Arp_Request(uint8_t * packet)
+ * Send the arp request when we need to know the mac address of the destination
+ *---------------------------------------------------------------------*/
+void arp_request(struct sr_instance * sr, struct in_addr dest){
+
+	char * next_hop = NULL;
+	/*
+	 *  Get the next hop
+	 */
+
+	struct sr_if *interface = sr_get_interface(sr, next_hop);
+
+	uint8_t * packet = (uint8_t *)malloc(sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr));
+
+	static uint8_t broadcast_addr[ETHER_ADDR_LEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+	struct sr_arphdr * arp_hdr = (struct sr_arphdr *) (packet + sizeof (struct sr_ethernet_hdr));
+
+	arp_hdr->ar_hln = 6;
+	arp_hdr->ar_pln = 4;
+	arp_hdr->ar_hrd = ntohs(1);
+	arp_hdr->ar_op = ntohs(ARP_REQUEST);
+	arp_hdr->ar_pro = ntohs(ETHERTYPE_IP);
+
+	memcpy(arp_hdr->ar_sha, interface->addr, ETHER_ADDR_LEN);
+	arp_hdr->ar_sip = interface->ip;
+	memcpy(arp_hdr->ar_tha, broadcast_addr, ETHER_ADDR_LEN);
+	arp_hdr->ar_tip = dest.s_addr;
+
+	if(sr_send_packet(sr, packet, sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr), next_hop)) {
+		printf("arp_request not success.\n");
+		return -1;
+	}
+
+	return 0;
+
+}
+
+
+
+/*---------------------------------------------------------------------
  * Method: Get_cksum(uint8_t * packet, unsigned int length)
  * Calculate the checksume of the packet.
  *---------------------------------------------------------------------*/
