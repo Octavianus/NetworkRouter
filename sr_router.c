@@ -21,8 +21,8 @@
 #include "sr_protocol.h"
 
 #define UNKOWN_TYPE -1
-#define ERROR 0
-#define OK 1
+#define ERROR -1
+#define OK 0
 
 /*--------------------------------------------------------------------- 
  * Method: sr_init(void)
@@ -118,7 +118,8 @@ void sr_handlepacket(struct sr_instance* sr,
 
     			// Send the packet to destinated interface.
     			// Have to cast the packet to uint8_t * to align with the sr_send_packet.
-    			if(sr_send_packet(sr, (uint8_t *)send_packet, packet_len, sr_in->name)) {
+    			int status = sr_send_packet(sr, (uint8_t *)send_packet, packet_len, sr_in->name);
+    			if(status == ERROR) {
     				printf("The host are unavaliable to response \n");
     			}
     			// Success to send the packet back.
@@ -199,7 +200,7 @@ void sr_handlepacket(struct sr_instance* sr,
     				memcpy(eth_hdr->ether_dhost, cache_entry->address, ETHER_ADDR_LEN);
 
     				status = sr_send_packet(sr, msg->packet, msg->length, msg->interface);
-    				if(status = ERROR) {
+    				if(status == ERROR) {
     					printf("Error when send IP packet \n");
    					}else{
    						// iterate to next msg
@@ -321,47 +322,54 @@ void Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int len
 	else
 		dest_ip = ip;
 
+	cache_entry = sr->arp_cache;
 
-
-	struct sr_arp_record * cache_lookup(struct sr_instance * sr, struct in_addr nexthop) {
-		struct sr_arp_record *record = sr->cache->records;
-
-		while(record != NULL) {
-			if(record->ip.s_addr == nexthop.s_addr) break;
-			record = record->next;
+	if(cache_entry == NULL)
+	{
+		printf("arp table does not have any record yet \n");
+	}else{
+		// Find a cache entry that have the same ip address as the next hop
+		while(cache_entry != NULL) {
+			if(cache_entry->ip.s_addr == dest_ip.s_addr) break;
+			cache_entry = cache_entry->next;
 		}
-
-		return record;
 	}
 
-	if(record == NULL) {
+	// If it does not have the ip in the cache table, check if there is already an arp request
+	if(cache_entry == NULL) {
 		// Check to see if there is an outstanding ARP request
-		struct sr_arp_request *request = cache_lookup_outstanding(sr, dest_ip);
-		if(request == NULL) {
-			// Create a new ARP request
-			if(arp_request(sr, dest_ip, interface) == 0) {
-				request = cache_add_request(sr, dest_ip);
-				// Add the recieved message to the outstanding arp request
-				cache_add_message(request, packet, length, interface, ip);
-			} /* endif: arp request sent succesfully */
+		struct sr_arp_request *req = NULL
+		req = sr->arp_req;
 
-			else {
-				printf("ARP request failed for address %s - dropping packet.\n", inet_ntoa(ip));
-			} /* endelse: arp request not sent succesfully */
-
-		} /* endif: no outstanding ARP request */
-
-		else {
-			cache_add_message(request, packet, length, interface, ip);
-		} /* endelse: ARP request already outstanding for this ip */
-
-	} /* endif: No record */
+		if(req == NULL)
+		{
+			printf("req table does not have any record yet \n");
+		}
+		else{
+			while(req != NULL) {
+				if(req->ip.s_addr == dest_ip.s_addr) break;
+				req = req->next;
+			}
+		}
+		// If have not received the req that has the same ip yet, add a new req.
+		if(req == NULL) {
+			req = cache_add_request(sr, dest_ip);
+			cache_add_message(req, packet, length, interface, ip);
+		}
+		// If already received the req, add a msg to that req.
+		else
+			cache_add_message(req, packet, length, interface, ip);
+	}
+	// if there already have that cache entry in the table, just send the packet.
 	else {
-		// Send packet
 		struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
-		memcpy(eth_hdr->ether_dhost, record->address, ETHER_ADDR_LEN);
-		sr_send_packet(sr, packet, length, interface);
-	} /* endelse: ARP record already exists */
+		memcpy(eth_hdr->ether_dhost, cache_entry->address, ETHER_ADDR_LEN);
+		int status = sr_send_packet(sr, packet, length, interface);
+		if(status == ERROR)
+		{
+			printf("Send packet error when add a cache entry \n");
+		}
+	}
 }
 
 /*---------------------------------------------------------------------
