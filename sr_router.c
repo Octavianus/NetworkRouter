@@ -476,9 +476,13 @@ void Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int len
                 req = req->next;
             }
         }
+
         // If have not received the req that has the same ip yet, add a new req.
         if(req == NULL) {
+        	struct req_msg_cache *msg = NULL;
             req = sr->arp_req;
+        	msg = req->msg;
+
             // If the req cache are not initialize yet
         	if(req == NULL) {
         		sr->arp_req = malloc(sizeof(struct arp_req_cache));
@@ -489,18 +493,11 @@ void Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int len
         			req = req->next;
         		req = malloc(sizeof(struct arp_req_cache));
         	}
-
-        	// TODO change it.
-        	req->ip = ip;
-        	req->counter = 1;
-        	req->timestamp = time(NULL);
         	req->msg = NULL;
-        	req->next = NULL;
+        	req->msg = malloc(sizeof(struct req_msg_cache));
+        	msg = req->msg;
 
-			struct req_msg_cache *msg = NULL;
-			msg = req->msg;
-
-			/* Allocate memory for message struct */
+        	/*
 			if(msg == NULL) {
 				req->msg = malloc(sizeof(struct req_msg_cache));
 				msg = req->msg;
@@ -511,8 +508,13 @@ void Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int len
 				msg = malloc(sizeof(struct req_msg_cache));
 				//msg = msg->next;
 			}
+			*/
 
 			// TODO change it
+	      	req->ip = ip;
+	        req->counter = 1;
+	        req->timestamp = time(NULL);
+	        req->next = NULL;
 			uint8_t *pcopy = malloc(length);
 			memcpy(pcopy, packet, length);
 			msg->length = length;
