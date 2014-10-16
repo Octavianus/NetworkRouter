@@ -20,6 +20,7 @@
 #include "sr_router.h"
 #include "sr_protocol.h"
 
+#define NO_ARP_REC -2
 #define UNKOWN_TYPE -1
 #define ERROR 0
 #define OK 1
@@ -210,7 +211,6 @@ void sr_handleARPpacket(struct sr_instance* sr,
         // If it's the destination
         if(arphdr->ar_tip == sr_in->ip){
 
-            // TODO change the name
             unsigned int packet_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr);
 
             // Copy src, des and type to the send packet.
@@ -412,15 +412,15 @@ int Sanity_IPCheck(uint8_t *packet/*,unsigned int len*/) {
 
 
 /*---------------------------------------------------------------------
- * Method: Add_Cache_Entry(uint8_t * packet)
- * Add a cache entry to the arp table
+ * Method: Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int length, char * interface, struct in_addr ip)
+ * Add request entry to the arp table
  *---------------------------------------------------------------------*/
-/* void Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int length, char * interface, struct in_addr ip) {
+void Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int length, char * interface, struct in_addr ip) {
 
     // Define the structure of ip, rtable and arp cache.
     struct in_addr dest_ip;
     struct sr_rt * rtable = NULL;
-    struct sr_arp_record *cache_entry = NULL;
+    struct arp_cache *cache_entry = NULL;
     rtable = sr->routing_table;
     uint32_t mask_valid = 0;
 
@@ -444,6 +444,7 @@ int Sanity_IPCheck(uint8_t *packet/*,unsigned int len*/) {
     else
         dest_ip = ip;
 
+    /*
     cache_entry = sr->arp_cache;
 
     if(cache_entry == NULL)
@@ -456,32 +457,98 @@ int Sanity_IPCheck(uint8_t *packet/*,unsigned int len*/) {
             cache_entry = cache_entry->next;
         }
     }
+    */
 
     // If it does not have the ip in the cache table, check if there is already an arp request
     if(cache_entry == NULL) {
         // Check to see if there is an outstanding ARP request
-        struct sr_arp_request *req = NULL
+        struct arp_req_cache *req = NULL;
         req = sr->arp_req;
 
         if(req == NULL)
         {
-            printf("req table does not have any record yet \n");
+            printf("Request table does not have any record yet \n");
         }
         else{
             while(req != NULL) {
-                if(req->ip.s_addr == dest_ip.s_addr) break;
+                if(req->ip.s_addr == dest_ip.s_addr)
+                	break;
                 req = req->next;
             }
         }
         // If have not received the req that has the same ip yet, add a new req.
         if(req == NULL) {
-            req = cache_add_request(sr, dest_ip);
-            cache_add_message(req, packet, length, interface, ip);
+            req = sr->arp_req;
+            // If the req cache are not initialize yet
+        	if(req == NULL) {
+        		sr->arp_req = malloc(sizeof(struct arp_req_cache));
+        		req = sr->arp_req;
+        	}// else allocate a new memory space for the request
+        	else{
+        		while(req != NULL)
+        			req = req->next;
+        		req = malloc(sizeof(struct arp_req_cache));
+        	}
+
+        	// TODO change it.
+        	req->ip = ip;
+        	req->counter = 1;
+        	req->timestamp = time(NULL);
+        	req->msg = NULL;
+        	req->next = NULL;
+
+			struct req_msg_cache *msg = NULL;
+			msg = req->msg;
+
+			/* Allocate memory for message struct */
+			if(msg == NULL) {
+				req->msg = malloc(sizeof(struct req_msg_cache));
+				msg = req->msg;
+			}
+			else {
+				while(msg != NULL)
+					msg = msg->next;
+				msg = malloc(sizeof(struct req_msg_cache));
+				//msg = msg->next;
+			}
+
+			// TODO change it
+			uint8_t *pcopy = malloc(length);
+			memcpy(pcopy, packet, length);
+			msg->length = length;
+			msg->interface = interface;
+			msg->packet = pcopy;
+			msg->next = NULL;
+
         }
         // If already received the req, add a msg to that req.
         else
-            cache_add_message(req, packet, length, interface, ip);
+        {
+			struct req_msg_cache *msg = NULL;
+			msg = req->msg;
+
+			/* Allocate memory for message struct */
+			if(msg == NULL) {
+				req->msg = malloc(sizeof(struct req_msg_cache));
+				msg = req->msg;
+			}
+			else {
+				while(msg != NULL)
+					msg = msg->next;
+				msg = malloc(sizeof(struct req_msg_cache));
+				//msg = msg->next;
+			}
+
+			// TODO change it
+			uint8_t *pcopy = malloc(length);
+			memcpy(pcopy, packet, length);
+			msg->length = length;
+			msg->interface = interface;
+			msg->packet = pcopy;
+			msg->next = NULL;
+        }
     }
+
     // if there already have that cache entry in the table, just send the packet.
     else {
         struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
@@ -493,20 +560,49 @@ int Sanity_IPCheck(uint8_t *packet/*,unsigned int len*/) {
         }
     }
 }
- */
 
+/*---------------------------------------------------------------------
+ * Method: Look_up_ARPCache(struct sr_instance * sr, struct in_addr ip)
+ * Look up the arp tabele when we need to know the mac address of the destination
+ *
+ * return NO_ARP_REC if there isn't a entry in the arp table
+ *---------------------------------------------------------------------*/
+uint8_t Look_up_ARPCache(struct sr_instance * sr, struct in_addr ip) {
+	struct arp_cache *cache_entry = NULL;
+
+	cache_entry = sr->arp_cache;
+	uint8_t addr;
+
+	while(cache_entry != NULL) {
+		if(cache_entry->ip.s_addr == ip.s_addr)
+			break;
+		cache_entry = cache_entry->next;
+	}
+
+	// Return the address of the entry, otherwise return an error msg
+	if(cache_entry == NULL)
+		addr = NO_ARP_REC;
+	else
+		addr = cache_entry->address;
+
+	cache_entry = NULL;
+	return addr;
+}
 
 
 /*---------------------------------------------------------------------
  * Method: Arp_Request(uint8_t * packet)
  * Send the arp request when we need to know the mac address of the destination
  *---------------------------------------------------------------------*/
+
+/*
 void arp_request(struct sr_instance * sr, struct in_addr dest){
 
     char * next_hop = NULL;
-    /*
-     *  Get the next hop
-     */
+
+
+    //  Get the next hop
+
 
     struct sr_if *interface = sr_get_interface(sr, next_hop);
 
@@ -532,7 +628,7 @@ void arp_request(struct sr_instance * sr, struct in_addr dest){
     }
 // return 0;
 }
-
+*/
 
 
 /*   handle ICMP packet   */
