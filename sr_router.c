@@ -96,36 +96,46 @@ void sr_handlepacket(struct sr_instance* sr,
     		// If it's the destination
     		if(arphdr->ar_tip == sr_in->ip){
 
+    			// TODO change the name
     			unsigned int packet_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr);
 
     			// Copy src, des and type to the send packet.
-    			struct sr_ethernet_hdr *send_packet = malloc(sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr));
-    			send_packet->ether_type = htons(ETHERTYPE_ARP);
-    			memcpy(send_packet->ether_shost, sr_in->addr, ETHER_ADDR_LEN);
-    			memcpy(send_packet->ether_dhost, arphdr->ar_sha, ETHER_ADDR_LEN);
+    			uint8_t  *send_packet = (uint8_t *)malloc(sizeof(uint8_t) * len);
+    			memcpy(send_packet, packet, len);
+    			struct sr_ethernet_hdr* ethr_hd = (struct sr_ethernet_hdr *)send_packet;
+    			struct sr_arphdr* arp_content = (struct sr_arphdr *) (send_packet + sizeof (struct sr_ethernet_hdr));
+
+    			memcpy(ethr_hd->ether_dhost, ethr_hd->ether_shost, ETHER_ADDR_LEN);
+    			memcpy(ethr_hd->ether_shost, sr_in->addr, ETHER_ADDR_LEN);
+    			ethr_hd->ether_type = htons(ETHERTYPE_ARP);
 
     			// Define the arp header from the packet we receive
-    			arphdr->ar_op = htons(ARP_REPLY);
-    			arphdr->ar_hrd = htons(ARPHDR_ETHER);
-    			arphdr->ar_hln = ETHER_ADDR_LEN;
-    			arphdr->ar_pln = 4;
-    			arphdr->ar_pro = htons(ETHERTYPE_IP);
-    			arphdr->ar_tip = arphdr->ar_sip;
-    			arphdr->ar_sip = sr_in->ip;
+    			arp_content->ar_op = htons(ARP_REPLY);
+    			arp_content->ar_hrd = htons(ARPHDR_ETHER);
+    			arp_content->ar_hln = ETHER_ADDR_LEN;
+    			arp_content->ar_pro = htons(ETHERTYPE_IP);
+    			arp_content->ar_pln = 4;
+    			arp_content->ar_sip = sr_in->ip;
 
-    			memcpy(arphdr->ar_sha, sr_in->addr, ETHER_ADDR_LEN);
-    			memcpy(arphdr->ar_tha, arphdr->ar_sha, ETHER_ADDR_LEN);
+       			memcpy(arphdr->ar_sha, sr_in->addr, ETHER_ADDR_LEN);
+        		memcpy(arphdr->ar_tha, ethr_hd->ether_dhost, ETHER_ADDR_LEN);
+
+        		// exchange the ip address.
+    			uint32_t ip_t = arp_content->ar_tip;
+    			arp_content->ar_tip = arp_content->ar_sip;
+    			arp_content->ar_sip = ip_t;
 
     			// Send the packet to destinated interface.
     			// Have to cast the packet to uint8_t * to align with the sr_send_packet.
-    			int status = sr_send_packet(sr, (uint8_t *)send_packet, packet_len, sr_in->name);
+    			int status;
+    			status = sr_send_packet(sr, (uint8_t *)send_packet, packet_len, interface);
     			if(status == ERROR) {
     				printf("The host are unavaliable to response \n");
     			}
     			// Success to send the packet back.
     			// TODO What to respond ?
     			else {
-    				// printf(" \n");
+    				printf("Packet send from ARP request!\n");
     			}
 
     			free(send_packet);
@@ -218,6 +228,12 @@ void sr_handlepacket(struct sr_instance* sr,
     		printf("Unkown arp type"\n");
     	}
     	*/
+    	// Handle the IP packet.
+    	else if(type == ETHERTYPE_IP){
+    		printf("received IP packet\n");
+    		sr_handleIPpacket(sr, packet, len, interface);
+
+    	}
 }
 
 
@@ -411,7 +427,6 @@ void arp_request(struct sr_instance * sr, struct in_addr dest){
 }
 
 
-
 /*---------------------------------------------------------------------
  * Method: Get_cksum(uint8_t * packet, unsigned int length)
  * Calculate the checksume of the packet.
@@ -440,3 +455,150 @@ uint16_t Get_cksum(uint8_t * packet, int len) {
 
 	// return ~cksum ? ~cksum : 0xFFFF;
 }
+
+/* handle ICMP packet */
+void sr_handleICMPpacket(
+        struct sr_instance* sr,
+        uint8_t * packet,
+        unsigned int len,
+        char* interface,
+        unsigned int ICMP_type,
+        unsigned int ICMP_code)
+{
+    // aquire interface name
+    struct sr_if *sr_in = sr_get_interface(sr, interface);
+
+    /* ---------------------------------- */
+    /* reset the ICMP type and code       */
+    /* ---------------------------------- */
+
+    // Time Exceeded error message
+    if (ICMP_type == 11 && ICMP_code == 0)
+    {
+        printf("process ICMP time exceeded error message\n");
+
+    }
+    // Router is the destination of the IP packet
+    else
+    {
+        // need code !!!
+        printf("other ICMP errors\n");
+    }
+
+    /* ---------------------------------- */
+    /* build ICMP packet                  */
+    /* ---------------------------------- */
+
+    // allocate memory for the whole ICMP ethernet packet
+    uint8_t *icmp_packet = malloc(len);
+    memcpy(icmp_packet, packet, sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
+
+    // initiate ICMP packet header
+    struct sr_ICMPhdr *icmp_hdr = (struct sr_ICMPhdr *)(icmp_packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
+    icmp_hdr->type = ICMP_type;
+    icmp_hdr->code = ICMP_code;
+    icmp_hdr->checksum = 0;
+    icmp_hdr->checksum = Get_cksum(icmp_hdr, sizeof(struct sr_ICMPhdr));
+
+    // copy ICMP data from received package
+    unsigned int data_length = len - sizeof(struct sr_ethernet_hdr) - sizeof(struct ip);
+    uint8_t *icmp_data = (uint8_t *)(icmp_packet + sizeof(struct sr_ICMPhdr));
+    memcpy(icmp_data, packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip), data_length);
+
+    // build the new ICMP packet, icmp_hdr + icmp_data
+    memcpy(icmp_hdr + sizeof(struct sr_ICMPhdr), icmp_data, data_length);
+    // recalculate checksum
+    icmp_hdr->checksum = Get_cksum((uint8_t)icmp_hdr, data_length);
+
+    // encapulate ICMP packet with ethernet and IP address
+    // by switching the source/destination addresses in orignal packet
+    uint8_t *ethernet_temp = malloc(sizeof(uint8_t) * ETHER_ADDR_LEN);
+    struct sr_ethernet_hdr *icmp_ethernet = (struct sr_ethernet_hdr *)icmp_packet;
+    struct ip *icmp_ip = (struct ip *)(icmp_packet + sizeof(struct sr_ethernet_hdr));
+
+    memcpy(ethernet_temp, icmp_ethernet->ether_dhost, ETHER_ADDR_LEN);
+    memcpy(icmp_ethernet->ether_dhost, icmp_ethernet->ether_shost, ETHER_ADDR_LEN);
+    memcpy(icmp_ethernet->ether_shost, ethernet_temp, ETHER_ADDR_LEN);
+
+    uint32_t ip_temp = icmp_ip->ip_dst.s_addr;
+    icmp_ip->ip_dst.s_addr = icmp_ip->ip_src.s_addr;
+    icmp_ip->ip_src.s_addr = ip_temp;
+
+    // calculate the IP checksum
+    icmp_ip->ip_sum = 0;
+    icmp_ip->ip_sum = htons(Get_sum((uint8_t *)icmp_ip, sizeof(struct ip)));
+
+    sr_send_packet(sr, icmp_packet, len, sr_in->name);
+
+    free(icmp_hdr);
+    free(icmp_data);
+    free(icmp_packet);
+} /* sr_handleICMPpacket()
+
+/* handle IP packet */
+void sr_handleIPpacket(struct sr_instance* sr,
+        uint8_t * packet, unsigned int len,
+        char* interface)
+{
+    struct ip *ip_hdr = NULL;
+    ip_hdr = (struct ip *)(sizeof(struct sr_ethernet_hdr) + packet);
+
+    // recalculate checksum
+    uint16_t checksum_received = Get_cksum(packet, len);
+
+    // compare ip address
+    // get desitination IP address from the packet
+    //struct in_addr *temp_IPaddr;
+    //temp_IPaddr = ip_hdr->ip_dst;
+
+    // get interface IP address
+    struct sr_if *sr_in = sr_get_interface(sr, interface);
+
+    if (sr_in == 0)
+    {
+        printf("Bad interface \n");
+        return;
+    }
+    else
+    {
+        struct sr_if *temp_interface = sr_in;
+        while (temp_interface)
+        {
+            if (temp_interface->ip == ip_hdr->ip_dst.s_addr)
+            {
+                printf("destination is the router\n");
+                sr_handleICMPpacket(sr, packet, len, interface, 3, 0);
+                break;
+            }
+
+            temp_interface = temp_interface->next;
+        }
+
+        if (temp_interface == NULL)
+        {
+            printf("destination is not the router\n");
+
+            // decrease TTL, if = 0, ICMP error message
+            ip_hdr->ip_ttl = ip_hdr->ip_ttl - 1;
+
+            // recal checksum
+            checksum_received = Get_cksum(packet, len);
+
+            if (ip_hdr->ip_ttl < 1)
+            {
+                printf("time limit reached");
+                sr_handleICMPpacket(sr, packet, len, interface, 11, 0);
+            }
+            else sr_IPforward(sr, packet, len, interface);
+        }
+    }
+
+    // check Checksum, not correct, ICMP error message
+    // Des IP is router, TCP/UDP, ICMP error message
+    // Des IP is router, ICMP, ICMP reply
+    // Des IP is other, IP forward, DesIP not in the table, ICMP error message
+    // Des IP is other, IP forward, find MAC address, in the cache, pack send
+    // Des IP is other, IP forward, find MAC address, not in the cache, ARPrequest, wait 5 seconds, no reply, ICMP error message
+    // Des IP is other, IP forward, find MAC address, not in the cache, ARPrequest, wait, get reply, pack send
+
+} /* sr_handleIPpacket() */

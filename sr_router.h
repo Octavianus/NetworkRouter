@@ -36,6 +36,16 @@
 struct sr_if;
 struct sr_rt;
 
+/* struct of ICMP header */
+/*                       */
+struct sr_ICMPhdr
+{
+    uint8_t type;               // ICMP type
+    uint8_t code;               // ICMP code
+    uint16_t checksum;          // ICMP checksum
+} __attribute__ ((packed));
+
+
 /* ----------------------------------------------------------------------------
  * struct arp_cache
  *
