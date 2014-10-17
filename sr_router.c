@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include<stdbool.h>
+#include <sys/time.h>
 
 #include "sr_if.h"
 #include "sr_rt.h"
@@ -23,7 +24,10 @@
 #define NO_ARP_REC -2
 #define UNKOWN_TYPE -1
 #define ERROR 0
+#define PACKET_RESEND_TIME 1
 #define OK 1
+#define MAX_TIME_SENT 5
+#define ARP_TIMEOUT 15
 
 /*--------------------------------------------------------------------- 
  * Method: sr_init(void)
@@ -79,7 +83,7 @@ void sr_IPforward(struct sr_instance* sr,
         uint8_t * packet,
         unsigned int len,
         char* interface);
-void arp_request(struct sr_instance * sr, char *interface, struct in_addr dest);
+void ARP_Request(struct sr_instance * sr, char *interface, struct in_addr dest);
 
 
 void sr_ARPcache_update(){};
@@ -283,7 +287,6 @@ void sr_handleARPpacket(struct sr_instance* sr,
             cache_entry->ip.s_addr = arphdr->ar_sip;
             cache_entry->timestamp = time(NULL);
 
-            // //
             //cache_send_outstanding(sr, record);
 
             req = sr->arp_req;
@@ -516,6 +519,82 @@ void Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int len
 }
 // if there already have that cache entry in the table, just send the packet.
 
+void *Arp_Cache_Timeout(struct sr_instance *sr){
+
+	while(1){
+		sleep(1);
+
+		// every time calling this function, init the scan.
+		struct arp_cache *curCache = &(sr->arp_cache);
+		struct arp_cache *prevCache = curCache;
+
+		if(curCache != NULL){// protect
+			while(curCache != NULL){
+				time_t curtime = time(NULL);
+				if(curtime - curCache->timestamp > ARP_TIMEOUT){
+					struct arp_cache *freeCache = curCache;
+					prevCache->next = curCache->next;
+					curCache = curCache->next;
+					free(freeCache);
+				// Iterator moves forward
+				}else{
+					prevCache = curCache;
+					curCache = curCache->next;
+				}
+			}
+		}
+
+		Req_Timeout(sr);
+	}
+}
+
+void Req_Timeout(struct sr_instance *sr){
+	struct arp_req_cache *curReq = NULL;
+	struct arp_req_cache *nextReq = NULL;
+	struct arp_req_cache *prevReq = NULL;
+
+	curReq = sr->arp_req;
+	if(curReq != NULL){
+		nextReq = curReq->next;
+	}
+	while(curReq != NULL)
+	{
+
+
+		time_t dif = difftime(time(0),curReq->timestamp);
+		if(dif > PACKET_RESEND_TIME){
+			if(curReq->counter >= MAX_TIME_SENT){
+
+				// icmp unreacheable
+
+				// if doesn't have prevReq, free this node.
+	            if (!prevReq) {
+	                sr->arp_req = curReq->next;
+	                free(curReq);
+	                curReq = curReq->next;
+	            // otherwise skip  this node.
+	            } else {
+	                prevReq->next = curReq->next;
+	                free(curReq);
+	                curReq = prevReq->next;
+	            }
+			}else{
+	        	printf("Resend arp request ! \n");
+
+	        	// next_hop
+
+		        //Arp_Request(sr, next_hop(sr_handle, reqs->ip, curReq->ip));
+		        curReq->counter++;
+		        curReq->timestamp = time(NULL);
+			}
+		}
+
+		prevReq = curReq;
+		curReq = nextReq;
+		if(curReq != NULL)
+			nextReq = curReq->next;
+	}
+}
 
 /*---------------------------------------------------------------------
  * Method: Look_up_ARPCache(struct sr_instance * sr, struct in_addr ip)
