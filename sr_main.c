@@ -24,6 +24,7 @@
 #include <unistd.h>
 #include <pwd.h>
 #include <sys/types.h>
+#include <pthread.h>
 
 #ifdef _LINUX_
 #include <getopt.h>
@@ -51,6 +52,7 @@ static void sr_init_instance(struct sr_instance* );
 static void sr_destroy_instance(struct sr_instance* );
 static void sr_set_user(struct sr_instance* );
 static void sr_load_rt_wrap(struct sr_instance* sr, char* rtable);
+static void Arp_Cache_Timeout(struct sr_instance *sr);
 
 /*-----------------------------------------------------------------------------
  *---------------------------------------------------------------------------*/
@@ -161,6 +163,8 @@ int main(int argc, char **argv)
 
     /* call router init (for arp subsystem etc.) */
     sr_init(&sr);
+   // pthread_t thread;
+   // pthread_create( &thread, NULL, Arp_Cache_Timeout,  (void*)&sr);
 
     /* -- whizbang main loop ;-) */
     while( sr_read_from_server(&sr) == 1);

@@ -43,6 +43,8 @@ struct sr_ICMPhdr
     uint8_t type;               // ICMP type
     uint8_t code;               // ICMP code
     uint16_t checksum;          // ICMP checksum
+	uint16_t id;                // ICMP id
+	uint16_t seq;               // ICMP seq
 } __attribute__ ((packed));
 
 
@@ -88,6 +90,21 @@ struct req_msg_cache{
 };
 
 /* ----------------------------------------------------------------------------
+ * struct arp_msg_cache
+ *
+ * Msg that on the waiting request.
+ * -------------------------------------------------------------------------- */
+struct msg_cache{
+	uint8_t *packet;
+	struct in_addr ip; // ip
+	char *interface;
+	int counter; // req counter
+	time_t timestamp; // time arrive
+	unsigned int length;
+	struct msg_cache *next;
+};
+
+/* ----------------------------------------------------------------------------
  * struct sr_instance
  *
  * Encapsulation of the state for a single virtual router.
@@ -109,6 +126,7 @@ struct sr_instance
     struct sr_rt* routing_table; /* routing table */
     struct arp_cache *arp_cache;
     struct arp_req_cache *arp_req;
+	struct msg_cache *msg_cache;
     FILE* logfile;
 };
 
