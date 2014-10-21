@@ -1,0 +1,8 @@
+struct sr_if *temp_interface = sr_in;
+
+        // check if destination IP address is the router
+        while (temp_interface)
+        {
+            if (temp_interface->ip == ip_hdr->ip_dst.s_addr) 
+            {
+                printf("destination is the router\n");

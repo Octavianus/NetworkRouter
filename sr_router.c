@@ -1,3 +1,4 @@
+
 /**********************************************************************
  * file:  sr_router.c 
  * date:  Mon Feb 18 12:50:42 PST 2002  
@@ -42,7 +43,6 @@ void sr_init(struct sr_instance* sr)
 {
     /* REQUIRES */
     assert(sr);
-	sr->arp_req = NULL;
 	sr->arp_cache = NULL;
 	sr->msg_cache = NULL;
 
@@ -89,46 +89,30 @@ void sr_IPforward(struct sr_instance* sr,
         char* interface);
 void Arp_Request(struct sr_instance * sr, struct in_addr dest);
 
-void setIPchecksum(struct ip* ip_hdr) {
-		uint32_t sum = 0;
-		ip_hdr->ip_sum = 0;
+/*------------------------------------------
+ * Calculate the checksum of the IP header
+ *------------------------------------------*/
+uint32_t cal_IPchecksum(struct ip* ip_hdr) 
+{
+	uint32_t cksum = 0;
+	uint16_t* hdr_temp = (uint16_t *) ip_hdr;
 
-		uint16_t* tmp = (uint16_t *) ip_hdr;
+	int i;
+	for (i = 0; i < ip_hdr->ip_hl * 2; i++)
+		cksum = cksum + hdr_temp[i];
 
-		int i;
-		for (i = 0; i < ip_hdr->ip_hl * 2; i++) {
-			sum = sum + tmp[i];
-		}
+	cksum = (cksum >> 16) + (cksum & 0xFFFF);
+	cksum = cksum + (cksum >> 16);
 
-		sum = (sum >> 16) + (sum & 0xFFFF);
-		sum = sum + (sum >> 16);
-
-		ip_hdr->ip_sum = ~sum;
-	}
-
-/* void setICMPchecksum(struct sr_ICMPhdr* icmphdr, uint8_t * packet, int len) {
-		uint32_t sum = 0;
-		icmphdr->checksum = 0;
-		uint16_t* tmp = (uint16_t *) packet;
-
-		int i;
-		for (i = 0; i < len / 2; i++) {
-			sum = sum + tmp[i];
-		}
-
-		sum = (sum >> 16) + (sum & 0xFFFF);
-		sum = sum + (sum >> 16);
-
-		icmphdr->checksum = ~sum;
-	}*/
+	return ~cksum;
+}
 
 
 /*------------------------------------------
- * Calculate the checksum of the packet.
+ * Calculate the checksum of the ICMP header
  *------------------------------------------*/
-uint16_t Get_cksum(uint8_t * packet, int len)
+uint16_t cal_ICMPcksum(uint8_t * packet, int len)
 {
-
     uint32_t checksum = 0;
     uint16_t* packet_temp = (uint16_t *) packet;
 
@@ -143,11 +127,11 @@ uint16_t Get_cksum(uint8_t * packet, int len)
         return ~checksum;
     else
         return checksum;
-}/* Get_cksum() */
+}/* cal_ICMPcksum() */
 
 
 /* ------------------------------------------------------- */
-/*               handle packet function                    */
+/*               packet handle function                    */
 /* set packet to process based on their types, ARP or IP   */
 /* ------------------------------------------------------- */
 
@@ -163,11 +147,11 @@ void sr_handlepacket(struct sr_instance* sr,
 
     printf("*** -> Received packet of length %d \n",len);
 
-    // Recognize the ethernet type
+    // Recognize the Ethernet type
     short type = get_EtherType(packet);
     if(type == UNKOWN_TYPE)
     {
-        printf("Can't Recognize the ethernet type \n");
+        printf("Can't Recognize the Ethernet type \n");
         return;
     }
 
@@ -184,10 +168,12 @@ void sr_handlepacket(struct sr_instance* sr,
         printf("received IP packet\n");
         sr_handleIPpacket(sr, packet, len, interface);    
     }   
-     /*else {
-            printf("Unkown arp type"\n");
-        }
-        */
+
+	else
+	{
+        printf("Unknown Ethernet type\n");
+    }
+
 } /* sr_handlepacket() */
 
 
@@ -196,8 +182,7 @@ void sr_handlepacket(struct sr_instance* sr,
 /* handle ARP packet */
 /* ----------------- */
 void sr_handleARPpacket(struct sr_instance* sr, 
-        uint8_t * packet,
-        unsigned int len,
+        uint8_t * packet, unsigned int len,
         char* interface)
 {
     // Get the router interfaces from the packet and initiate the apr header.
@@ -244,7 +229,7 @@ void sr_handleARPpacket(struct sr_instance* sr,
             arp_content->ar_tip = arp_content->ar_sip;
             arp_content->ar_sip = ip_t;
 
-            // Send the packet to destinated interface.
+            // Send the packet to designated interface.
             // Have to cast the packet to uint8_t * to align with the sr_send_packet.
             int status;
             status = sr_send_packet(sr, (uint8_t *)send_packet, packet_len, interface);
@@ -252,7 +237,6 @@ void sr_handleARPpacket(struct sr_instance* sr,
                 // printf("The host are unavaliable to response \n");
             }
             // Success to send the packet back.
-            // TODO What to respond ?
             else {
                 printf("Reply Packet sent for ARP request!\n");
             }
@@ -269,14 +253,14 @@ void sr_handleARPpacket(struct sr_instance* sr,
 			printf("get ARP_Reply\n");
             // Init and add a new arp entry.
             struct arp_cache * cache_entry = NULL;
-            struct arp_req_cache * req = NULL;
 
-            // If there is no cach entry in the table, init it,
-            // otherwise, add the entry to the tail of the list.
+            // If there is no cache entry in the table, init it,
+            // Otherwise, add the entry to the tail of the list.
             if(sr->arp_cache == NULL) {
                 sr->arp_cache = malloc(sizeof(struct arp_cache));
                 cache_entry = sr->arp_cache;
-            } else {
+            } 
+			else {
                 cache_entry = sr->arp_cache;
                 while(cache_entry->next != NULL)
                     cache_entry = cache_entry->next;
@@ -292,70 +276,15 @@ void sr_handleARPpacket(struct sr_instance* sr,
 
 			Search_Message_Entry(sr, arphdr->ar_sip, arphdr->ar_sha);
 
-            //cache_send_outstanding(sr, record);
-
-            // req = sr->arp_req;
-            // if(req == NULL) {
-                // printf("Does not have any request yet.\n");
-                // return;
-            // // Find the ip request in the list
-            // }else{
-                // while(req != NULL) {
-                    // // TODO struct sr_arphdr *arp_hdr = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr))
-                        // // cache_entry could be arphdr->ar_sip
-                        // if(req->ip.s_addr == cache_entry->ip.s_addr)
-                            // // find it
-                            // break;
-                        // else
-                            // req = req->next;
-                    // }
-
-                // if(req == NULL){
-                    // printf("Does not have any request yet.\n");
-                    // return;
-                // }
-            // }
-
-            // struct req_msg_cache *msg = NULL;
-            // msg = req->msg;
-
-            // if(msg == NULL) {
-                // printf("Does not have any msg yet \n"/*, inet_ntoa(arphdr->ar_sip)*/);
-            // }
-
-            // struct arp_msg_cache *prev = msg;
-            // while(msg != NULL) {
-                // // TODO memcpy(record->address, arp_hdr->ar_sha, ETHER_ADDR_LEN);
-
-                // int status = 0;
-                // struct sr_ethernet_hdr *eth_hdr = NULL;
-                // eth_hdr = (struct sr_ethernet_hdr *)msg->packet;
-                // memcpy(eth_hdr->ether_dhost, cache_entry->address, ETHER_ADDR_LEN);
-
-                // status = sr_send_packet(sr, msg->packet, msg->length, msg->interface);
-
-				// printf("a waiting message been sent\n");
-                // if(status == ERROR) {
-                    // printf("Error when send IP packet \n");
-                // }else{
-                    // // iterate to next msg
-                    // free(prev);
-                    // free(msg->packet);
-
-                    // prev = msg;
-                    // msg = msg->next;
-                // }
-            // }
-        }
+    }
 } /*  sr_handleARPpacket  */
 
 
 
-
-/*--------------------------------------------------------------------- 
+/*-------------------------------------------- 
  * Method: get_EtherType(uint8_t * packet)
  * Get the ethernet type from packet
- *---------------------------------------------------------------------*/
+ *--------------------------------------------*/
 short get_EtherType(uint8_t *packet){
 	// Type cast
 	struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
@@ -370,131 +299,22 @@ short get_EtherType(uint8_t *packet){
 		return UNKOWN_TYPE;
 }
 
-
-/*---------------------------------------------------------------------
- * Method: Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int length, char * interface, struct in_addr ip)
- * Add request entry to the arp table
- *---------------------------------------------------------------------*/
-void Add_Cache_Entry(struct sr_instance * sr, uint8_t * packet, unsigned int length, char * interface, struct in_addr ip) {
-
-	printf("get into add-cache entry\n");
-    // Define the structure of ip, rtable and arp cache.
-    struct in_addr dest_ip = ip;
-    struct sr_rt * rtable = NULL;
-    struct arp_cache *cache_entry = NULL;
-    rtable = sr->routing_table;
-
-    // If it does not have the ip in the cache table, check if there is already an arp request
-    struct arp_req_cache *req = NULL;
-    req = sr->arp_req;
-
-	printf("search the end of cache list\n");
-    if(req == NULL)
-    {
-    	printf("Request table does not have any record yet \n");
-    }
-    else{
-    	while(req != NULL) {
-    		if(req->ip.s_addr == dest_ip.s_addr)
-    			break;
-    		req = req->next;
-    	}
-    }
-
-	printf("finish search\n");
-    // If have not received the req that has the same ip yet, add a new req.
-    if(req == NULL) {
-    	// send arp request if this is the first request.
-		printf("prepare send ARP request\n");
-    	Arp_Request(sr, dest_ip);
-		printf("finish sending ARP request\n");
-		struct req_msg_cache *msg = NULL;
-    	req = sr->arp_req;
-
-
-    	// If the req cache are not initialize yet
-    	if(req == NULL) {
-    		sr->arp_req = malloc(sizeof(struct arp_req_cache));
-    		req = sr->arp_req;
-    	}// else allocate a new memory space for the request
-    	else{
-    		while(req != NULL)
-    			req = req->next;
-    		req = malloc(sizeof(struct arp_req_cache));
-    	}
-    	req->msg = NULL;
-    	req->msg = malloc(sizeof(struct req_msg_cache));
-    	msg = req->msg;
-
-
-		if(msg == NULL) {
-			req->msg = malloc(sizeof(struct req_msg_cache));
-			msg = req->msg;
-		}
-		else {
-			while(msg != NULL)
-				msg = msg->next;
-			msg = malloc(sizeof(struct req_msg_cache));
-			//msg = msg->next;
-		}
-
-
-    	// TODO change it
-    	req->ip = ip;
-    	req->counter = 1;
-    	req->timestamp = time(NULL);
-    	req->next = NULL;
-    	uint8_t *pcopy = malloc(length);
-    	memcpy(pcopy, packet, length);
-    	msg->length = length;
-    	msg->interface = interface;
-    	msg->packet = pcopy;
-    	msg->next = NULL;
-   }
-    // If already received the req, add a msg to that req.
-    else
-    {
-    	struct req_msg_cache *msg = NULL;
-    	msg = req->msg;
-
-    	/* Allocate memory for message struct */
-    	if(msg == NULL) {
-    		req->msg = malloc(sizeof(struct req_msg_cache));
-    		msg = req->msg;
-    	}
-    	else {
-    		while(msg != NULL)
-    			msg = msg->next;
-    		msg = malloc(sizeof(struct req_msg_cache));
-    		//msg = msg->next;
-    	}
-
-    	// TODO change it
-    	uint8_t *pcopy = malloc(length);
-    	memcpy(pcopy, packet, length);
-    	msg->length = length;
-    	msg->interface = interface;
-    	msg->packet = pcopy;
-    	msg->next = NULL;
-		}
-}
-// if there already have that cache entry in the table, just send the packet.
-
-/* new method to add msg request*/
-void Add_Message_Entry(struct sr_instance *sr, uint8_t *packet, unsigned int len, char *interface, struct in_addr ip)
+/*-------------------------------- 
+ * Add message request to cache
+ *--------------------------------*/
+void Add_Message_Entry(struct sr_instance *sr, uint8_t *packet, 
+		unsigned int len, char *interface_pre, char *interface, 
+		struct in_addr ip)
 {
-	printf("begin to add entry\n");
 	struct in_addr dest_ip = ip;
 	uint8_t *packet_entry = malloc(len);
 	memcpy(packet_entry, packet, len);
 	struct msg_cache *msg_cache_index = sr->msg_cache;
 
-
 	while(msg_cache_index != NULL)
 	{
 		msg_cache_index = msg_cache_index->next;
 	}
-	printf("search msg entry to the end\n");
 
 	msg_cache_index = malloc(sizeof(struct msg_cache));
 	if (sr->msg_cache == NULL)
@@ -505,6 +325,7 @@ void Add_Message_Entry(struct sr_instance *sr, uint8_t *packet, unsigned int len
 	msg_cache_index->packet = packet_entry;
 	msg_cache_index->ip = ip;
 	msg_cache_index->interface = interface;
+	msg_cache_index->interface_pre = interface_pre;
 	msg_cache_index->counter = 0;
 	msg_cache_index->length = len;
 	msg_cache_index->next = NULL;
@@ -516,19 +337,20 @@ void Add_Message_Entry(struct sr_instance *sr, uint8_t *packet, unsigned int len
 
 } /* Add_Message_Entry() */
 
+
+
+/*----------------------------------- 
+ *  Search the waiting message with 
+ *  the new IP-Mac address entry
+ *-----------------------------------*/
 void Search_Message_Entry(struct sr_instance *sr, uint32_t ipadr, uint8_t *eth_addr)
 {
-	printf("begin to search message\n");
 	struct arp_cache *arp_entry_index = sr->arp_cache;
 	struct msg_cache *msg_cache_index = sr->msg_cache;
-	struct msg_cache *pre_msg = sr->msg_cache;
-
-	//uint32_t temp = msg_cache_index->ip.s_addr;
-	//uint32_t temp2 = ip.s_addr;
+	struct msg_cache *pre_msg = NULL;
 
 	while (msg_cache_index != NULL && (msg_cache_index->ip.s_addr != ipadr))
 	{
-		printf("address %d \n", ipadr);
 		pre_msg = msg_cache_index;
 		msg_cache_index = msg_cache_index->next;
 	}
@@ -542,80 +364,106 @@ void Search_Message_Entry(struct sr_instance *sr, uint32_t ipadr, uint8_t *eth_a
 		sr_send_packet(sr, msg_cache_index->packet, msg_cache_index->length, msg_cache_index->interface);
 		printf("a waiting message been sent\n");
 
-		pre_msg->next = msg_cache_index->next;
+		if (pre_msg != NULL)
+			pre_msg->next = msg_cache_index->next;
+		else
+			sr->msg_cache = msg_cache_index->next;
+		
 		free(msg_cache_index->packet);
 		free(msg_cache_index);
 		printf("delete sent message\n");
 	}
 	else
 		printf("no IP matched message entry \n");
-}
+} /* Search_Message_Entry() */
 
-void *Arp_Cache_Timeout(struct sr_instance *sr){
+
+/*-----------------------------------------------------------
+ * Method: void Arp_Cache_Timeout(struct sr_instance *sr)
+ * Calculate the timeout for arp table in every minute.
+ * Remove the timeout Entry.
+ *----------------------------------------------------------*/
+void Arp_Cache_Timeout(struct sr_instance *sr){
 
 	while(1){
 		sleep(1);
-
+		
 		// every time calling this function, init the scan.
-		struct arp_cache *curCache = &(sr->arp_cache);
-		struct arp_cache *prevCache = curCache;
+		struct arp_cache *curCache = NULL;
+		
+		if(sr->arp_cache != NULL)
+			curCache = sr->arp_cache;
 
 		if(curCache != NULL){// protect
 			while(curCache != NULL){
 				time_t curtime = time(NULL);
-				if(curtime - curCache->timestamp > ARP_TIMEOUT){
+				if(difftime(curtime, curCache->timestamp) > ARP_TIMEOUT){
 					struct arp_cache *freeCache = curCache;
-					prevCache->next = curCache->next;
-					curCache = curCache->next;
-					free(freeCache);
+
+					if(curCache->next != NULL){
+						curCache = curCache->next;
+						free(freeCache);
+						sr->arp_cache = curCache;
+					}
+					else
+						curCache = NULL;
+
 				// Iterator moves forward
 				}else{
-					prevCache = curCache;
-					curCache = curCache->next;
+					//prevCache = curCache;
+					if(curCache-> next != NULL)
+						curCache = curCache->next;
 				}
 			}
 		}
 
+		// Calculate the timeout for the outstanding request packets.
 		Req_Timeout(sr);
+		
 	}
 }
 
-void Req_Timeout(struct sr_instance *sr){
-	struct arp_req_cache *curReq = NULL;
-	struct arp_req_cache *nextReq = NULL;
-	struct arp_req_cache *prevReq = NULL;
 
-	curReq = sr->arp_req;
+/*---------------------------------------------------------------------
+ * Method: void Req_Timeout(struct sr_instance *sr)
+ * Calculate the timeout for the outstanding request packets,
+ * Remove the one doesn't get reply for 5 time resend
+ *---------------------------------------------------------------------*/
+void Req_Timeout(struct sr_instance *sr){
+	struct msg_cache *curReq = NULL;
+	struct msg_cache *nextReq = NULL;
+	struct msg_cache *prevReq = NULL;
+
+	curReq = sr->msg_cache;
 	if(curReq != NULL){
 		nextReq = curReq->next;
 	}
 	while(curReq != NULL)
 	{
 
-
 		time_t dif = difftime(time(0),curReq->timestamp);
 		if(dif > PACKET_RESEND_TIME){
 			if(curReq->counter >= MAX_TIME_SENT){
-
-				// icmp unreacheable
-
 				// if doesn't have prevReq, free this node.
-	            if (!prevReq) {
-	                sr->arp_req = curReq->next;
+	            if (prevReq == NULL) {
+	                sr->msg_cache = curReq->next;
+		            // Send ICMP unreachable.
+	                sr_handleICMPpacket(sr, curReq->packet , curReq->length, curReq->interface_pre, 3 , 1);
 	                free(curReq);
 	                curReq = curReq->next;
 	            // otherwise skip  this node.
 	            } else {
 	                prevReq->next = curReq->next;
+		            // Send ICMP unreachable.
+	                sr_handleICMPpacket(sr, curReq->packet , curReq->length, curReq->interface_pre, 3 , 1);
 	                free(curReq);
 	                curReq = prevReq->next;
 	            }
+	            //sr_handleICMPpacket(sr, curReq->packet , curReq->length, curReq->interface,3 , 1);
+
 			}else{
-	        	printf("Resend arp request ! \n");
-
-	        	// next_hop
-
-		        //Arp_Request(sr, next_hop(sr_handle, reqs->ip, curReq->ip));
+	        	printf("Resend arp request %d times ! \n", curReq->counter);
+		        Arp_Request(sr, curReq->ip);
 		        curReq->counter++;
 		        curReq->timestamp = time(NULL);
 			}
@@ -628,12 +476,12 @@ void Req_Timeout(struct sr_instance *sr){
 	}
 }
 
-/*---------------------------------------------------------------------
+
+/*--------------------------------------------------------------------------
  * Method: Look_up_ARPCache(struct sr_instance * sr, struct in_addr ip)
- * Look up the arp tabele when we need to know the mac address of the destination
- *
- * return NO_ARP_REC if there isn't a entry in the arp table
- *---------------------------------------------------------------------*/
+ * Look up the arp tabele when we need to know the mac address of the 
+ * destination return NO_ARP_REC if there isn't a entry in the arp table
+ *-------------------------------------------------------------------------*/
 struct arp_cache *Look_up_ARPCache(struct sr_instance * sr, struct in_addr ip) {
 	struct arp_cache *cache_entry = NULL;
 
@@ -641,7 +489,6 @@ struct arp_cache *Look_up_ARPCache(struct sr_instance * sr, struct in_addr ip) {
 	uint8_t addr = 0;
 	printf("get into ARPCache look up\n");
 	while(cache_entry != NULL) {
-		printf("cache IP %s  \n",inet_ntoa(cache_entry->ip));
 		if(cache_entry->ip.s_addr == ip.s_addr)
 			break;
 		cache_entry = cache_entry->next;
@@ -655,23 +502,18 @@ struct arp_cache *Look_up_ARPCache(struct sr_instance * sr, struct in_addr ip) {
 		printf("find matched IP entry %s \n",inet_ntoa(cache_entry->ip));
 		addr = cache_entry->address;
 	}
-	cache_entry = NULL;
+	
 	return cache_entry;
 }
 
-/*---------------------------------------------------------------------
- * Method: Arp_Request(struct sr_instance * sr, char *interface, struct in_addr dest)
+
+/*------------------------------------------------------------------------------------
+ * Method: Arp_Request(struct sr_instance * sr, char *interface, struct in_addr dest
  * Send the arp request when we need to know the mac address of the destination
- *---------------------------------------------------------------------*/
+ *-----------------------------------------------------------------------------------*/
 void Arp_Request(struct sr_instance * sr, struct in_addr dest){
 
-    // char * next_hop = NULL;
-    // Get the next hop
-
-	// find out the interface
-	printf("Arp request send\n");
-
-    uint8_t * packet = (uint8_t *)malloc(sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr));
+	uint8_t * packet = (uint8_t *)malloc(sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr));
 
     static uint8_t broadcast_addr[ETHER_ADDR_LEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
     struct sr_arphdr * arp_hdr = (struct sr_arphdr *) (packet + sizeof (struct sr_ethernet_hdr));
@@ -688,9 +530,9 @@ void Arp_Request(struct sr_instance * sr, struct in_addr dest){
     arp_hdr->ar_tip = dest.s_addr;
 	memcpy(arp_hdr->ar_tha, broadcast_addr, ETHER_ADDR_LEN);
 
-	//struct sr_rt *rt_iterator = sr->routing_table;
 	struct sr_if *interface = sr->if_list;
 
+	// Broadcast to all the interface on router
 	while(interface != NULL)
 	{
 		memcpy(arp_hdr->ar_sha, interface->addr, ETHER_ADDR_LEN);
@@ -705,11 +547,14 @@ void Arp_Request(struct sr_instance * sr, struct in_addr dest){
 
     // Give the interface mac address and broadcast mask to the arp header.
 
-
 	free(packet);
 }
 
-/*   handle ICMP packet   */
+
+
+/* ---------------------  
+ *  handle ICMP packet   
+ *-----------------------*/
 void sr_handleICMPpacket(
         struct sr_instance* sr, 
         uint8_t * packet,
@@ -718,12 +563,9 @@ void sr_handleICMPpacket(
         unsigned int ICMP_type,
         unsigned int ICMP_code)
 {
-    // aquire interface name
+    // acquire interface name
     struct sr_if *sr_in = sr_get_interface(sr, interface);
-
-    /* ---------------------------------- */
-    /* the ICMP type and code       */
-    /* ---------------------------------- */
+	struct sr_if *temp_interface = sr_in;
 
     // ICMP message information
     if (ICMP_type == 11 && ICMP_code == 0){
@@ -735,53 +577,58 @@ void sr_handleICMPpacket(
     if (ICMP_type == 3 && ICMP_code == 3){
         printf("Port Unreachable\n");}
 
-    // ??? need differentiate ICMP reply or request
     if (ICMP_type == 0 && ICMP_code == 0){
         printf("ICMP echo reply\n");}
         
 
-    /* ---------------------------------- */
-    /* build ICMP packet                  */
-    /* ---------------------------------- */
-
-    // allocate memory for the whole ICMP ethernet packet
-    uint8_t *icmp_packet = malloc(sizeof(uint8_t) * len);
+    //     build ICMP packet       //           
+    
+	// allocate memory for the whole ICMP Ethernet packet
+	uint8_t *icmp_packet = malloc(sizeof(uint8_t) * len);
     memcpy(icmp_packet, packet, len);
 	
     printf("build ICMP\n");
+	
     // initiate ICMP packet header
     struct sr_ICMPhdr *icmp_hdr = (struct sr_ICMPhdr *)(icmp_packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
-    icmp_hdr->type = ICMP_type;
+    
+	icmp_hdr->type = ICMP_type;
     icmp_hdr->code = ICMP_code;
-
-	// recalculate checksum
-    icmp_hdr->checksum = 0;
-    icmp_hdr->checksum = Get_cksum(icmp_hdr, len - sizeof(struct sr_ethernet_hdr) - sizeof(struct ip));
 	
-    // encapulate ICMP packet with ethernet and IP address
+	// encapulate ICMP packet with ethernet and IP address
     // by switching the source/destination addresses in orignal packet 
     uint8_t *ethernet_temp = malloc(sizeof(uint8_t) * ETHER_ADDR_LEN);
     struct sr_ethernet_hdr *icmp_ethernet = (struct sr_ethernet_hdr *)icmp_packet;
     struct ip *icmp_ip = (struct ip *)(icmp_packet + sizeof(struct sr_ethernet_hdr));
-   
+	icmp_ip->ip_p = IPPROTO_ICMP;
+   	
     memcpy(ethernet_temp, icmp_ethernet->ether_dhost, ETHER_ADDR_LEN);
-    memcpy(icmp_ethernet->ether_dhost, icmp_ethernet->ether_shost, ETHER_ADDR_LEN);
+	memcpy(icmp_ethernet->ether_dhost, icmp_ethernet->ether_shost, ETHER_ADDR_LEN);
     memcpy(icmp_ethernet->ether_shost, ethernet_temp, ETHER_ADDR_LEN);
 	icmp_ethernet->ether_type = htons(ETHERTYPE_IP);
 	
     struct in_addr ip_temp = icmp_ip->ip_dst;
 	icmp_ip->ip_dst = icmp_ip->ip_src;
     icmp_ip->ip_src = ip_temp;
-			
+	if (ICMP_type != 0)      //NOT ICMP echo
+		icmp_ip->ip_len = htons(sizeof(struct ip)+sizeof(struct sr_ICMPhdr)+sizeof(struct ip)+8);
+		
 	// change TTL in IP header
 	icmp_ip->ip_ttl = 64;
 	
     // calculate the IP checksum
 	icmp_ip->ip_sum = 0;
-    icmp_ip->ip_sum = Get_cksum(icmp_ip, sizeof(struct ip));
+    icmp_ip->ip_sum = cal_IPchecksum(icmp_ip);
+
+	icmp_hdr->checksum = 0;
+	icmp_hdr->checksum = cal_ICMPcksum(icmp_hdr, len - sizeof(struct sr_ethernet_hdr) - sizeof(struct ip));
 	
 	// send final ICMP packet
-    sr_send_packet(sr, icmp_packet, len, interface);
+	if (ICMP_type != 20)
+		sr_send_packet(sr, icmp_packet, len, interface);
+	else
+		sr_send_packet(sr, icmp_packet, sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ICMPhdr) + sizeof(struct ip)*2 + 8, interface);
+	
 	printf("ICMP message sent from %s to ", inet_ntoa(icmp_ip->ip_src));
 	printf("%s\n  ", inet_ntoa(icmp_ip->ip_dst));
 
@@ -792,36 +639,33 @@ void sr_handleICMPpacket(
 
 
 
-/* handle forwarding IP packets */
+/* ---------------------  
+ *  Forward IP packet   
+ *-----------------------*/
 void sr_IPforward(struct sr_instance* sr, 
         uint8_t * packet,
         unsigned int len,
         char* interface)
 {
+	char* interface_temp = (char *)malloc(sizeof(char) * sr_IFACE_NAMELEN);
+	strncpy(interface_temp, interface, sr_IFACE_NAMELEN);   // copy of the input interface;
+	
     // use dest_IP address search routing table for next hop
     struct ip *ip_hdr = NULL;
     ip_hdr = (struct ip *)(sizeof(struct sr_ethernet_hdr) + packet);
     struct in_addr ip_dst_temp = ip_hdr->ip_dst;
     struct in_addr ip_nexthop;
 
-    printf("handle forwarding IP\n");
     // searching routing table for next hop IP address
     struct sr_rt * rt_temp = sr->routing_table;
 	struct sr_if *forward_if = NULL;
 
     while (rt_temp != NULL)
     {
-        printf("search routing table\n");
-        printf("target IP address         %s \n", inet_ntoa(ip_dst_temp));
-        //printf("IP entry in Routing table %s \n", inet_ntoa(rt_temp->dest));
-        //printf("IP mask in Routing table  %s \n", inet_ntoa(rt_temp->mask));
-        //printf("gateway in Routing table  %s \n", inet_ntoa(rt_temp->gw));
-        //printf("IP addr and Mask          %d \n", (ip_dst_temp.s_addr & rt_temp->mask.s_addr));
 
         if ((rt_temp->dest.s_addr != 0) && ((ip_dst_temp.s_addr & rt_temp->mask.s_addr) == rt_temp->dest.s_addr))
         {
             printf("found next hop Ip\n");
-    
             if (rt_temp->gw.s_addr != 0)
             {
                 ip_nexthop = rt_temp->gw;
@@ -877,46 +721,18 @@ void sr_IPforward(struct sr_instance* sr,
 	{
 		printf("add to message cache\n");
 
-		//struct sr_ICMPhdr *icmp_hdr2 = (struct sr_ICMPhdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
-
-		//printf("original icmp checksum %d\n", icmp_hdr2->checksum);
 		uint8_t * waiting_packet = malloc(len);
 		memcpy(waiting_packet, packet, len);
-		Add_Message_Entry(sr, waiting_packet, len, interface, ip_nexthop);
+		Add_Message_Entry(sr, waiting_packet, len, interface_temp, interface, ip_nexthop);
 		free(waiting_packet);
 	}
-
-
-    // found next hop of the destination IP
-    /*if (rt_temp != NULL)
-    {
-        // searh ARP cache table find next hop mac address
-        uint8_t ethAddr_nexthop = Look_up_ARPCache(sr, ip_nexthop);
-        if (ethAddr_nexthop != NO_ARP_REC)
-        {
-            struct sr_ethernet_hdr *forward_ethernet = (struct sr_ethernet_hdr *)packet;
-            memcpy(forward_ethernet->ether_shost, forward_ethernet->ether_dhost, ETHER_ADDR_LEN);
-            memcpy(forward_ethernet->ether_dhost, &ethAddr_nexthop, ETHER_ADDR_LEN);
-            sr_send_packet(sr, packet, len, interface);
-            printf("send forward IP packet\n");
-        }
-        else
-        {
-            printf("add cache");
-            Add_Cache_Entry(sr, packet, len, interface, ip_nexthop);
-        }
-
-    }*/
-
-    // use next hop IP find its mac addr
-    // if not in ARP table, send request
-    // no ARP request, drop the packet, send ICMP response
-
 
 }/* sr_IPforward() */
 
 
-/* handle IP packet */
+/* ---------------------  
+ *  Handle IP packet   
+ *-----------------------*/
 void sr_handleIPpacket(struct sr_instance* sr, 
         uint8_t * packet, unsigned int len,
         char* interface)
@@ -927,13 +743,7 @@ void sr_handleIPpacket(struct sr_instance* sr,
     printf("source IP address %s to ", inet_ntoa(ip_hdr->ip_src));
     printf("dest IP address %s \n", inet_ntoa(ip_hdr->ip_dst));
 
-
-
-    // recalculate checksum
-    //uint16_t checksum_received = Get_cksum(packet, len);
-
-    // compare ip address
-    // get interface IP address
+	// compare ip address and then get interface IP address
     struct sr_if *sr_in = sr_get_interface(sr, interface);
 
     if (sr_in == 0)     
@@ -952,7 +762,7 @@ void sr_handleIPpacket(struct sr_instance* sr,
             {
                 printf("destination is the router\n");
 
-                // ICMP type
+                // ICMP Type
                 if (ip_hdr->ip_p == IPPROTO_ICMP)
                 {
                     sr_handleICMPpacket(sr, packet, len, interface, 0, 0);
@@ -961,20 +771,13 @@ void sr_handleIPpacket(struct sr_instance* sr,
                 }
                 // TCP/UDP type, drop the packet, send port unreachable packets
                 else if (ip_hdr->ip_p == IPPROTO_TCP || ip_hdr->ip_p == IPPROTO_UDP)
-                {
-                    if (ip_hdr->ip_p == IPPROTO_TCP)
-                        printf("ip type TCP\n");
-                    if (ip_hdr->ip_p == IPPROTO_TCP)
-                        printf("ip type UDP\n");
-                   
-                        sr_handleICMPpacket(sr, packet, len, interface, 3, 3);
-                        break;
-
-
+                {             
+                    sr_handleICMPpacket(sr, packet, len, interface, 3, 3);
+                    break;
                 }
                 else 
                 {
-                    printf("ip type not recognized\n");
+                    printf("IP type not recognized\n");
                     break;
                 }
             }
@@ -989,7 +792,8 @@ void sr_handleIPpacket(struct sr_instance* sr,
 
             // decrease TTL, if = 0, ICMP error message
             ip_hdr->ip_ttl = ip_hdr->ip_ttl - 1;
-			setIPchecksum(ip_hdr);
+			ip_hdr->ip_sum = 0;
+			ip_hdr->ip_sum = cal_IPchecksum(ip_hdr);
 
             if (ip_hdr->ip_ttl < 1)
             {
@@ -1000,13 +804,4 @@ void sr_handleIPpacket(struct sr_instance* sr,
         }
     }
    
-
-    // check Checksum, not correct, ICMP error message
-    // Des IP is router, TCP/UDP, ICMP error message
-    // Des IP is router, ICMP, ICMP reply
-    // Des IP is other, IP forward, DesIP not in the table, ICMP error message
-    // Des IP is other, IP forward, find MAC address, in the cache, pack send
-    // Des IP is other, IP forward, find MAC address, not in the cache, ARPrequest, wait 5 seconds, no reply, ICMP error message
-    // Des IP is other, IP forward, find MAC address, not in the cache, ARPrequest, wait, get reply, pack send
-
 } /* sr_handleIPpacket() */

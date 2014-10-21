@@ -7,7 +7,7 @@
 
 
 #@allinf = ('v1-eth0', 'v2-eth1', 'v3-eth2', 'app1', 'app2');
-@allinf = ("app1", "eth0", "eth1", "eth2", "app2");
+@allinf = ("eth0", "eth1", "eth2", "app1", "app2");
 # ping 10 times
 $ping = 'ping -c 10';
 # ping only once
@@ -17,18 +17,13 @@ $tr = 'traceroute -n -f 10 -m 20 -N 1 -q 1';
 
 $topFile = shift @ARGV;
 open(INF, "< $topFile") || die("cannot open topology file!\n");
-$n = 0; 
-$max = scalar(@allinf);
 while($line = <INF>) {
-    while ($line =~ s/(\d+\.\d+\.\d+\.\d+)//) {
-        $addr{$allinf[$n]} = $1;
-        $n++;
-        last if($n == scalar(@allinf));
-    }
-    last if($n == scalar(@allinf));
+    chomp($line);
+    ($f, $i) = split('=', $line);
+    $addr{$f} = $i;
+#    print "$addr{$f}, $f.\n";
 }
-die("not enough IPs\n") if ($n != $max);
-
+close(INF);
 
 $command = shift @ARGV;
 
@@ -69,8 +64,9 @@ foreach $f(@ifs) {
     if($command eq 'web') {
 #        `/bin/rm -f  index.html Earl_Johnson--Aint_Nobodys_Business.mp3`;
 #        `wget -t 0 "http://$ip/index.html" `;
-        `wget "http://$ip" -O /dev/null `;
-        `wget "http://$ip/big.jpg" -O /dev/null `;
+        `wget "http://$ip:16280" -O /dev/null `;
+#        `wget "http://$ip:16280/beautiful-dreamer.mp3" -O /dev/null `;
+        `wget "http://$ip:16280/64MB.bin" -O /dev/null `;
 #        `/bin/rm -f index.html Earl_Johnson--Aint_Nobodys_Business.mp3`;
 #    `/bin/rm -f congrats.jpg strong_bad_natl_anthem.mp3`;
 #    `wget -t 0 -c http://$inf{'app1'}/congrats.jpg`;
@@ -112,6 +108,6 @@ if($command eq 'unreach') {
     }
 # making TCP connection to eth0
     $ip = $addr{"eth0"};
-    `wget --connect-timeout=2 --tries=1 http://$ip`;
+    `wget --connect-timeout=2 --tries=1 http://$ip:16280`;
 }
       

@@ -108,8 +108,8 @@ struct ip
  *  Easy enough to solve that and define it here.
  */
 struct sr_ethernet_hdr
-#ifndef ETHER_ADDR_LEN
 {
+#ifndef ETHER_ADDR_LEN
 #define ETHER_ADDR_LEN 6
 #endif
     uint8_t  ether_dhost[ETHER_ADDR_LEN];    /* destination ethernet address */

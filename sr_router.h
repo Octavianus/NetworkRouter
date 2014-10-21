@@ -38,13 +38,12 @@ struct sr_rt;
 
 /* struct of ICMP header */
 /*                       */
-struct sr_ICMPhdr
-{
+struct sr_ICMPhdr 
+{   
     uint8_t type;               // ICMP type
     uint8_t code;               // ICMP code
     uint16_t checksum;          // ICMP checksum
-	uint16_t id;                // ICMP id
-	uint16_t seq;               // ICMP seq
+	
 } __attribute__ ((packed));
 
 
@@ -64,40 +63,13 @@ struct arp_cache{
 /* ----------------------------------------------------------------------------
  * struct arp_msg_cache
  *
- * Store the outstanding message of both request and reply locally
- * -------------------------------------------------------------------------- */
-struct arp_req_cache{
-	int counter; // req counter
-	time_t timestamp; // time arrive
-	struct in_addr ip; // ip
-
-	struct arp_req_cache *next;
-	struct req_msg_cache *msg;
-};
-
-/* ----------------------------------------------------------------------------
- * struct arp_msg_cache
- *
- * Msg that on the waiting request.
- * -------------------------------------------------------------------------- */
-struct req_msg_cache{
-	uint8_t *packet;
-	char *interface;
-	time_t timestamp; // time arrive
-
-	unsigned int length;
-	struct req_msg_cache *next;
-};
-
-/* ----------------------------------------------------------------------------
- * struct arp_msg_cache
- *
  * Msg that on the waiting request.
  * -------------------------------------------------------------------------- */
 struct msg_cache{
 	uint8_t *packet;
 	struct in_addr ip; // ip
-	char *interface;
+	char *interface;   // forward interface
+	char *interface_pre;  // input interface
 	int counter; // req counter
 	time_t timestamp; // time arrive
 	unsigned int length;
